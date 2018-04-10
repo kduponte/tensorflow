@@ -17,6 +17,8 @@ limitations under the License.
 
 #include <stdint.h>
 
+#include "tensorflow/contrib/lite/context.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif  // __cplusplus
@@ -174,6 +176,11 @@ typedef struct {
   int block_size;
 } TfLiteSpaceToDepthParams;
 
+typedef struct {
+  TfLiteType in_data_type;
+  TfLiteType out_data_type;
+} TfLiteCastParams;
+
 typedef enum {
   kTfLiteCombinerTypeSum = 0,
   kTfLiteCombinerTypeMean = 1,
@@ -196,6 +203,10 @@ typedef struct {
 } TfLiteMeanParams;
 
 typedef struct {
+  int num_splits;
+} TfLiteSplitParams;
+
+typedef struct {
   // TODO(ahentz): We can't have dynamic data in this struct, at least not yet.
   // For now we will fix the maximum possible number of dimensions.
   int squeeze_dims[8];
@@ -209,6 +220,10 @@ typedef struct {
   int new_axis_mask;
   int shrink_axis_mask;
 } TfLiteStridedSliceParams;
+
+typedef struct {
+  TfLiteType output_type;
+} TfLiteArgMaxParams;
 
 #ifdef __cplusplus
 }  // extern "C"
