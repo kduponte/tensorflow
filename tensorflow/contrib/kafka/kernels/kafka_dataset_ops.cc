@@ -15,7 +15,7 @@ limitations under the License.
 
 #include "tensorflow/core/framework/dataset.h"
 
-#include "src-cpp/rdkafkacpp.h"
+#include "rdkafkacpp.h"
 
 namespace tensorflow {
 
@@ -33,18 +33,20 @@ class KafkaDatasetOp : public DatasetOpKernel {
     std::vector<string> topics;
     topics.reserve(topics_tensor->NumElements());
     for (int i = 0; i < topics_tensor->NumElements(); ++i) {
-      topics.push_back(topics_tensor->flat<string>()(i));
+      topics.push_back(topics_tensor->flat<tstring>()(i));
     }
 
     std::string servers = "";
-    OP_REQUIRES_OK(ctx,
-                   ParseScalarArgument<std::string>(ctx, "servers", &servers));
+    OP_REQUIRES_OK(
+        ctx, data::ParseScalarArgument<std::string>(ctx, "servers", &servers));
     std::string group = "";
-    OP_REQUIRES_OK(ctx, ParseScalarArgument<std::string>(ctx, "group", &group));
+    OP_REQUIRES_OK(
+        ctx, data::ParseScalarArgument<std::string>(ctx, "group", &group));
     bool eof = false;
-    OP_REQUIRES_OK(ctx, ParseScalarArgument<bool>(ctx, "eof", &eof));
+    OP_REQUIRES_OK(ctx, data::ParseScalarArgument<bool>(ctx, "eof", &eof));
     int64 timeout = -1;
-    OP_REQUIRES_OK(ctx, ParseScalarArgument<int64>(ctx, "timeout", &timeout));
+    OP_REQUIRES_OK(ctx,
+                   data::ParseScalarArgument<int64>(ctx, "timeout", &timeout));
     OP_REQUIRES(ctx, (timeout > 0),
                 errors::InvalidArgument(
                     "Timeout value should be large than 0, got ", timeout));
@@ -52,19 +54,19 @@ class KafkaDatasetOp : public DatasetOpKernel {
   }
 
  private:
-  class Dataset : public GraphDatasetBase {
+  class Dataset : public DatasetBase {
    public:
     Dataset(OpKernelContext* ctx, std::vector<string> topics,
             const string& servers, const string& group, const bool eof,
             const int64 timeout)
-        : GraphDatasetBase(ctx),
+        : DatasetBase(DatasetContext(ctx)),
           topics_(std::move(topics)),
           servers_(servers),
           group_(group),
           eof_(eof),
           timeout_(timeout) {}
 
-    std::unique_ptr<IteratorBase> MakeIterator(
+    std::unique_ptr<IteratorBase> MakeIteratorInternal(
         const string& prefix) const override {
       return std::unique_ptr<IteratorBase>(
           new Iterator({this, strings::StrCat(prefix, "::Kafka")}));
@@ -81,10 +83,11 @@ class KafkaDatasetOp : public DatasetOpKernel {
       return *shapes;
     }
 
-    string DebugString() override { return "KafkaDatasetOp::Dataset"; }
+    string DebugString() const override { return "KafkaDatasetOp::Dataset"; }
 
    protected:
-    Status AsGraphDefInternal(DatasetGraphDefBuilder* b,
+    Status AsGraphDefInternal(SerializationContext* ctx,
+                              DatasetGraphDefBuilder* b,
                               Node** output) const override {
       Node* topics = nullptr;
       TF_RETURN_IF_ERROR(b->AddVector(topics_, &topics));
@@ -125,9 +128,9 @@ class KafkaDatasetOp : public DatasetOpKernel {
               if (message->err() == RdKafka::ERR_NO_ERROR) {
                 // Produce the line as output.
                 Tensor line_tensor(cpu_allocator(), DT_STRING, {});
-                line_tensor.scalar<string>()() =
-                    std::string(static_cast<const char*>(message->payload()),
-                                message->len());
+                line_tensor.scalar<tstring>()().assign(
+                    static_cast<const char*>(message->payload()),
+                    message->len());
                 out_tensors->emplace_back(std::move(line_tensor));
                 *end_of_sequence = false;
                 // Sync offset
