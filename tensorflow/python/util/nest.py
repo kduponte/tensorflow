@@ -39,8 +39,8 @@ import collections as _collections
 import six as _six
 
 from tensorflow.python import _pywrap_utils
-from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.compat import collections_abc as _collections_abc
+from tensorflow.python.util.tf_export import tf_export
 
 
 _SHALLOW_TREE_HAS_INVALID_KEYS = (
@@ -142,7 +142,7 @@ def _sequence_like(instance, args):
       return d
     else:
       return instance_type((key, result[key]) for key in instance)
-  if _is_mapping_view(instance):
+  elif _is_mapping_view(instance):
     # We can't directly construct mapping views, so we create a list instead
     return list(args)
   elif _is_namedtuple(instance) or _is_attrs(instance):
@@ -197,7 +197,8 @@ def _yield_sorted_items(iterable):
     for field in iterable._fields:
       yield field, getattr(iterable, field)
   elif _is_composite_tensor(iterable):
-    yield type(iterable).__name__, iterable._to_components()  # pylint: disable=protected-access
+    type_spec = iterable._type_spec  # pylint: disable=protected-access
+    yield type(iterable).__name__, type_spec._to_components(iterable)  # pylint: disable=protected-access
   elif _is_type_spec(iterable):
     # Note: to allow CompositeTensors and their TypeSpecs to have matching
     # structures, we need to use the same key string here.
@@ -233,8 +234,9 @@ def is_nested(seq):
 def flatten(structure, expand_composites=False):
   """Returns a flat list from a given nested structure.
 
-  If nest is not a sequence, tuple, or dict, then returns a single-element list:
-  [nest].
+  If nest is not a sequence, tuple (or a namedtuple), dict, or an attrs class,
+  then returns a single-element list:
+    [nest].
 
   In the case of dict instances, the sequence consists of the values, sorted by
   key to ensure deterministic behavior. This is true also for OrderedDict
@@ -1078,6 +1080,7 @@ def map_structure_with_tuple_paths_up_to(shallow_tree, func, *inputs, **kwargs):
 
   Example:
 
+  ```python
   lowercase = {'a': 'a', 'b': ('b0', 'b1')}
   uppercase = {'a': 'A', 'b': ('B0', 'B1')}
 
@@ -1089,9 +1092,9 @@ def map_structure_with_tuple_paths_up_to(shallow_tree, func, *inputs, **kwargs):
                                        print_path_and_values,
                                        lowercase,
                                        uppercase)
-  >>> path: ('a',), values: ('a', 'A')
-  >>> path: ('b', 0), values: ('b0', 'B0')
-  >>> path: ('b', 1), values: ('b1', 'B1')
+  path: ('a',), values: ('a', 'A')
+  path: ('b', 0), values: ('b0', 'B0')
+  path: ('b', 1), values: ('b1', 'B1')
 
   shallow_tree = {'b': None}
   map_structure_with_tuple_paths_up_to(shallow_tree,
@@ -1099,7 +1102,7 @@ def map_structure_with_tuple_paths_up_to(shallow_tree, func, *inputs, **kwargs):
                                        lowercase,
                                        uppercase,
                                        check_types=False)
-  >>> path: ('b', 1), values: (('bo', 'b1'), ('B0', 'B1'))
+  path: ('b', 1), values: (('bo', 'b1'), ('B0', 'B1'))
 
   shallow_tree = {'a': None, 'b': {1: None}}
   map_structure_with_tuple_paths_up_to(shallow_tree,
@@ -1107,8 +1110,9 @@ def map_structure_with_tuple_paths_up_to(shallow_tree, func, *inputs, **kwargs):
                                        lowercase,
                                        uppercase,
                                        check_types=False)
-  >>> path: ('a',), values: ('a', 'A')
-  >>> path: ('b', 1), values: ('b1', B1')
+  path: ('a',), values: ('a', 'A')
+  path: ('b', 1), values: ('b1', B1')
+  ```
 
   Args:
     shallow_tree: a shallow tree, common to all the inputs.
@@ -1250,16 +1254,16 @@ def yield_flat_paths(nest, expand_composites=False):
   E.g. if we have a tuple `value = Foo(a=3, b=Bar(c=23, d=42))`
 
   ```shell
-  >>> nest.flatten(value)
+  nest.flatten(value)
   [3, 23, 42]
-  >>> list(nest.yield_flat_paths(value))
+  list(nest.yield_flat_paths(value))
   [('a',), ('b', 'c'), ('b', 'd')]
   ```
 
   ```shell
-  >>> list(nest.yield_flat_paths({'a': [3]}))
+  list(nest.yield_flat_paths({'a': [3]}))
   [('a', 0)]
-  >>> list(nest.yield_flat_paths({'a': 3}))
+  list(nest.yield_flat_paths({'a': 3}))
   [('a',)]
   ```
 

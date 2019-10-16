@@ -86,19 +86,14 @@ final class NativeInterpreterWrapper implements AutoCloseable {
       delegates.add(delegate);
     }
 
-    try {
-      allocateTensors(interpreterHandle, errorHandle);
-    } catch (IllegalStateException e) {
-      // Only try flex delegate usage if allocation fails. This avoids unnecessary creation of the
-      // flex delegate, which can be expensive.
+    if (hasUnresolvedFlexOp(interpreterHandle)) {
       optionalFlexDelegate = maybeCreateFlexDelegate();
       if (optionalFlexDelegate != null) {
         applyDelegate(interpreterHandle, errorHandle, optionalFlexDelegate.getNativeHandle());
-        allocateTensors(interpreterHandle, errorHandle);
-      } else {
-        throw e;
       }
     }
+
+    allocateTensors(interpreterHandle, errorHandle);
     this.isMemoryAllocated = true;
   }
 
@@ -390,6 +385,8 @@ final class NativeInterpreterWrapper implements AutoCloseable {
   private Delegate optionalFlexDelegate;
 
   private static native long allocateTensors(long interpreterHandle, long errorHandle);
+
+  private static native boolean hasUnresolvedFlexOp(long interpreterHandle);
 
   private static native int getInputTensorIndex(long interpreterHandle, int inputIdx);
 

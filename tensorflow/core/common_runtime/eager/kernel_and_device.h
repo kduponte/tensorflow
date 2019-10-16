@@ -34,10 +34,6 @@ limitations under the License.
 
 namespace tensorflow {
 
-// Forward declaration for proto class NodeExecStats so we do not need to
-// include the proto header
-class NodeExecStats;
-class StepStats;
 class ProcessFunctionLibraryRuntime;
 class FunctionLibraryRuntime;
 
@@ -74,18 +70,16 @@ class KernelAndDevice : public core::RefCounted {
         runner_(runner) {}
 
   // Not thread safe.
-  virtual ~KernelAndDevice() {}
+  ~KernelAndDevice() override {}
 
   // TODO(ashankar): Handle list-valued inputs.
   virtual Status Run(const gtl::InlinedVector<TensorValue, 4>& inputs,
-                     std::vector<Tensor>* outputs, NodeExecStats* stats,
-                     StepStats* step_stats, GraphCollector* graph_collector,
+                     std::vector<Tensor>* outputs,
                      CancellationManager* cancellation_manager) = 0;
 
   virtual Status Run(ScopedStepContainer* step_container,
                      const gtl::InlinedVector<TensorValue, 4>& inputs,
-                     std::vector<Tensor>* outputs, NodeExecStats* stats,
-                     StepStats* step_stats, GraphCollector* graph_collector,
+                     std::vector<Tensor>* outputs,
                      CancellationManager* cancellation_manager) = 0;
 
   virtual Device* InputDevice(int i) const = 0;
@@ -144,14 +138,12 @@ class KernelAndDeviceOp final : public KernelAndDevice {
   Status Init(const NodeDef& ndef, GraphCollector* graph_collector) override;
 
   Status Run(const gtl::InlinedVector<TensorValue, 4>& inputs,
-             std::vector<Tensor>* outputs, NodeExecStats* stats,
-             StepStats* step_stats, GraphCollector* graph_collector,
+             std::vector<Tensor>* outputs,
              CancellationManager* cancellation_manager) override;
 
   Status Run(ScopedStepContainer* step_container,
              const gtl::InlinedVector<TensorValue, 4>& inputs,
-             std::vector<Tensor>* outputs, NodeExecStats* stats,
-             StepStats* step_stats, GraphCollector* graph_collector,
+             std::vector<Tensor>* outputs,
              CancellationManager* cancellation_manager) override;
 
   const OpKernel* kernel() const override { return kernel_.get(); }
@@ -187,7 +179,6 @@ class KernelAndDeviceFunc final : public KernelAndDevice {
   KernelAndDeviceFunc(
       FunctionLibraryRuntime* flr, ProcessFunctionLibraryRuntime* pflr,
       std::vector<Device*> input_devices,
-      std::unordered_map<int, TensorShape> input_tensor_shapes,
       std::unordered_map<int, DtypeAndPartialTensorShape>
           input_resource_dtypes_and_shapes,
       std::function<void(std::function<void()>)>* runner,
@@ -199,7 +190,6 @@ class KernelAndDeviceFunc final : public KernelAndDevice {
         pflr_(pflr),
         handle_(kInvalidHandle),
         input_devices_(std::move(input_devices)),
-        input_tensor_shapes_(std::move(input_tensor_shapes)),
         input_resource_dtypes_and_shapes_(
             std::move(input_resource_dtypes_and_shapes)),
         name_(name),
@@ -210,13 +200,11 @@ class KernelAndDeviceFunc final : public KernelAndDevice {
   Status Init(const NodeDef& ndef, GraphCollector* graph_collector) override;
 
   Status Run(const gtl::InlinedVector<TensorValue, 4>& inputs,
-             std::vector<Tensor>* outputs, NodeExecStats* stats,
-             StepStats* step_stats, GraphCollector* graph_collector,
+             std::vector<Tensor>* outputs,
              CancellationManager* cancellation_manager) override;
   Status Run(ScopedStepContainer* step_container,
              const gtl::InlinedVector<TensorValue, 4>& inputs,
-             std::vector<Tensor>* outputs, NodeExecStats* stats,
-             StepStats* step_stats, GraphCollector* graph_collector,
+             std::vector<Tensor>* outputs,
              CancellationManager* cancellation_manager) override;
 
   const OpKernel* kernel() const override { return nullptr; }
@@ -242,7 +230,6 @@ class KernelAndDeviceFunc final : public KernelAndDevice {
   // CPU devices are not null. Resource handles' devices are actual backing
   // devices.
   std::vector<Device*> input_devices_;
-  std::unordered_map<int, TensorShape> input_tensor_shapes_;
   std::unordered_map<int, DtypeAndPartialTensorShape>
       input_resource_dtypes_and_shapes_;
 

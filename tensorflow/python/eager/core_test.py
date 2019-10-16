@@ -27,6 +27,7 @@ import numpy as np
 
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.python import pywrap_tensorflow
+from tensorflow.python.compat import compat
 from tensorflow.python.eager import context
 from tensorflow.python.eager import core
 from tensorflow.python.eager import def_function
@@ -35,6 +36,7 @@ from tensorflow.python.eager import executor
 from tensorflow.python.eager import test
 from tensorflow.python.framework import config
 from tensorflow.python.framework import constant_op
+from tensorflow.python.framework import device as pydev
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
 from tensorflow.python.framework import ops
@@ -302,9 +304,13 @@ class TFETest(test_util.TensorFlowTestCase):
       with self.assertRaises(ValueError):
         bool(tf_a == tf_d)
       self.assertAllEqual(tf_a == tf_d, [[True, False], [True, False]])
-      # TODO(b/120678848): If shapes do not match we should instead return False
-      with self.assertRaises(errors.InvalidArgumentError):
-        bool(tf_a != tf_e)
+      if compat.forward_compatible(2019, 9, 25):
+        self.assertFalse(bool(tf_a == tf_e))
+        self.assertTrue(bool(tf_a != tf_e))
+        self.assertNotAllEqual(tf_a, tf_e)
+      else:
+        with self.assertRaises(errors.InvalidArgumentError):
+          bool(tf_a != tf_e)
 
       with self.assertRaises(ValueError):
         bool(np_a == np_b)
@@ -313,7 +319,9 @@ class TFETest(test_util.TensorFlowTestCase):
         bool(np_a == np_c)
       self.assertAllEqual(np_a == np_c, [[True, True], [True, True]])
       self.assertAllEqual(np_a == np_d, [[True, False], [True, False]])
-      bool(np_a != np_e)
+      self.assertFalse(bool(np_a == np_e))
+      self.assertTrue(bool(np_a != np_e))
+      self.assertNotAllEqual(np_a, np_e)
     finally:
       if default:
         ops.enable_tensor_equality()
@@ -334,16 +342,6 @@ class TFETest(test_util.TensorFlowTestCase):
     ctx.execution_mode = context.SYNC
     self.assertEqual(context.SYNC, ctx.execution_mode)
 
-    self.assertIsNone(ctx.summary_writer)
-    ctx.summary_writer = 'mock'
-    self.assertEqual('mock', ctx.summary_writer)
-    self.assertIsNone(ctx.summary_recording)
-    ctx.summary_recording = 'mock'
-    self.assertEqual('mock', ctx.summary_recording)
-    self.assertIsNone(ctx.summary_step)
-    ctx.summary_step = 'mock'
-    self.assertEqual('mock', ctx.summary_step)
-
     self.assertEqual('', ctx.device_name)
     self.assertEqual(ctx.device_name, ctx.device_spec.to_string())
     with ctx.device('GPU:0'):
@@ -357,12 +355,37 @@ class TFETest(test_util.TensorFlowTestCase):
           self.assertEqual('/job:localhost/replica:0/task:0/device:CPU:0',
                            ctx.device_name)
           self.assertEqual(ctx.device_name, ctx.device_spec.to_string())
+        with ctx.device(ctx.list_logical_devices('CPU')[0]):
+          self.assertEqual('/job:localhost/replica:0/task:0/device:CPU:0',
+                           ctx.device_name)
+          self.assertEqual(ctx.device_name, ctx.device_spec.to_string())
+
+    gpus = ctx.list_logical_devices('GPU')
+    if gpus:
+      with ctx.device(gpus[0]):
+        self.assertEqual('/job:localhost/replica:0/task:0/device:GPU:0',
+                         ctx.device_name)
+        self.assertEqual(ctx.device_name, ctx.device_spec.to_string())
 
     has_cpu_device = False
     for x in ctx.devices():
       has_cpu_device = has_cpu_device or 'CPU' in x
     self.assertTrue(has_cpu_device)
     del ctx
+
+  def testDevice_supportsLogicalDevice(self):
+    ctx = context.Context()
+    cpus = ctx.list_logical_devices('CPU')
+    with ctx.device(cpus[0]):
+      self.assertEqual('/job:localhost/replica:0/task:0/device:CPU:0',
+                       ctx.device_name)
+
+  def testDevice_supportsDeviceSpec(self):
+    ctx = context.Context()
+    device_name = '/job:localhost/replica:0/task:0/device:CPU:0'
+    device_spec = pydev.DeviceSpec.from_string(device_name)
+    with ctx.device(device_spec):
+      self.assertEqual(device_name, ctx.device_name)
 
   def testAsyncBasic(self):
     ctx = context.Context(execution_mode=context.ASYNC)
@@ -427,9 +450,6 @@ class TFETest(test_util.TensorFlowTestCase):
       return [
           ctx.executing_eagerly(),
           ctx.scope_name,
-          ctx.summary_writer,
-          ctx.summary_recording,
-          ctx.summary_step,
           ctx.device_name,
           ctx.num_gpus()
       ]
@@ -725,12 +745,14 @@ class TFETest(test_util.TensorFlowTestCase):
                'container', '', 'shared_name', ''))
 
   def testExecuteShapeAttrBadValue(self):
-    with self.assertRaises(errors.InvalidArgumentError):
+    with self.assertRaisesRegex(
+        errors.InvalidArgumentError,
+        'Expecting a Dimension for attr shape, got object'):
       execute(
           b'VarHandleOp',
           num_outputs=1,
           inputs=[],
-          attrs=('shape', 1, 'dtype', dtypes.int32.as_datatype_enum,
+          attrs=('shape', [object()], 'dtype', dtypes.int32.as_datatype_enum,
                  'container', '', 'shared_name', ''))
 
   def testExecuteListStringAttr(self):
@@ -1029,16 +1051,17 @@ class SendRecvTest(test_util.TensorFlowTestCase):
     configure_virtual_cpus()
 
   def testBasic(self):
-    t0 = constant_op.constant(1.0)
-    t1 = constant_op.constant(2.0)
-    self._send(t0, 't0', self.cpu_device)
-    self._send(t1, 't1', self.cpu_device)
-    self.assertAllEqual(
-        self._recv(dtypes.float32, 't0', self.cpu_device),
-        1.0)
-    self.assertAllEqual(
-        self._recv(dtypes.float32, 't1', self.cpu_device),
-        2.0)
+    with ops.device(self.cpu_device):
+      t0 = constant_op.constant(1.0)
+      t1 = constant_op.constant(2.0)
+      self._send(t0, 't0', self.cpu_device)
+      self._send(t1, 't1', self.cpu_device)
+      self.assertAllEqual(
+          self._recv(dtypes.float32, 't0', self.cpu_device),
+          1.0)
+      self.assertAllEqual(
+          self._recv(dtypes.float32, 't1', self.cpu_device),
+          2.0)
 
   @test_util.run_gpu_only
   def testLocalCrossDevice(self):
